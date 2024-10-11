@@ -1,84 +1,122 @@
+const roads = [
+    "Alisa's house-Bob's house",
+    "Alisa's house-PostOffice",
+    "Darya's house-Erni's house",
+    "Erni's house-Greta's house",
+    "Greta's house-Shop",
+    "Martet-PostOffice",
+    "Market-TownHall",
+    "Alisa's house-Warehouse",
+    "Bob's house-TownHall",
+    "Darya's house-TownHall",
+    "Greta's house-Farm",
+    "Market-Farm",
+    "Market-Shop",
+    "Shop-TownHall",
+]
 
-//Объект Vector
-function Vector(x,y) {
-    this.x = x;
-    this.y = y;
-}
-Vector.prototype.plus = function(other) {
-    return new Vector(this.x + other.x, this.y + other.y);
-}
+const mailRoute = [
+    "Alisa's house", "Warehouse", "Alisa's house", "Bob's house",
+    "TownHall", "Darya's house", "Erni's house", "Greta's house",
+    "Shop", "Greta's house", "Farm", "Market", "Post Office"
+];
 
-//Сетка
-function Grid(width, height) {
-    this.space = new Array(width * height);
-    this.width = width;
-    this.height = height;
-}
-
-Grid.prototype.isInside = function(vector) {
-    return vector.x >= 0 && vector.x < this.width &&
-    vector.y >= 0 && vector.y < this.height;
-};
-
-Grid.prototype.get = function(vector) {
-    return this.space[vector.x + this.width * vector.y];
-};
-
-Grid.prototype.set = function(vector, value) {
-    this.space[vector.x + this.width * vector.y] = value;
-};
-//
-//* Вспомогательные функции
-//Случайный элемент массива(направление для шага существа)
-function randomElement(array) {
-    return array[Math.floor(Math.random() * array.length)];
-}
-//создание нужного экземпляра, находим конструктор символа и применяем new. Из свойства originChar узнаём изначальный символ
-function elementFromChar(legend, ch) {
-    if(ch === " ") return null;
-    let element = new legend[ch]();
-    element.originChar = ch;
-    return element;
-}
-
-//Объект World
-function World(map, legend) {
-    let grid = new Grid(map[0].length, map.length);
-    this.grid = grid;
-    this.legend - legend;
-
-    map.forEach((line, y) => {
-        for(let x = 0; x < line.length; x++) {
-            grid.set(new Vector(x, y),elementFromChar(legend, line[x]))
+function buildGraph(edges) {
+    let graph = Object.create(null);
+    function addEdge(from,to) {
+        if (graph[from] == null) {
+            graph[from] = [to];
         }
-    })
-}
-
-
-//Объект BouncingCritter
-function BouncingCritter() {
-    this.direction = randomElement(Object.keys(directions));
-}
-
-BouncingCritter.prototype.act = function(view) {
-    if(view.look(this.direction) != " ") {
-        this.direction = view.find(" ") || "s";
+        else {
+            graph[from].push(to);
+        }
     }
-    return {type: "move", direction: this.direction};
+    for ([from, to] of edges.map(r => r.split("-"))) {
+        addEdge(from,to);
+        addEdge(to, from);
+    }
+    return graph;
 }
 
-//Объект с направлениями
-let directions = {
-    "n": new Vector (0, 1),
-    "ne": new Vector(1, 1),
-    "e": new Vector(1, 0),
-    "se": new Vector(1, -1),
-    "s": new Vector(0, -1),
-    "sw": new Vector(-1,-1),
-    "w": new Vector(-1, 0),
-    "nw": new Vector(-1, 1)
+const roadGraph = buildGraph(roads)
+console.log(roadGraph);
+
+class VillageState {
+    constructor(place, parcels) {
+        this.place = place;
+        this.parcels = parcels;
+    }
+    move(destination) {
+        if(!roadGraph[this.place].includes(destination)) {
+            return this;
+        }
+        else {
+            let parcels = this.parcels.map ((p) => {
+                if(p.place != this.place) return p;
+                else return {place: destination, address: p.address}
+            }).filter((p) => p.place != p.address);
+            return new VillageState(destination, parcels);
+        }
+    }
 }
 
-let grid = new Grid(5,5);
-grid.set(new Vector(1,1), "X");
-console.log(grid.get(new Vector(1,1,)));
+function runRobot(state, robot, memory) {
+    for(let turn = 0;;turn++) {
+        if (state.parcels.length == 0) {
+            console.log(`Выполнено за ${turn} ходов`);
+            break
+        }
+        let action = robot(state, memory);
+        state = state.move(action.direction);
+        memory = action.memory;
+        console.log(`Переход в направление ${action.direction}`);
+    }
+}
+
+function randomPick(array) {
+    let choice = Math.floor(Math.random() * array.length);
+    return array[choice];
+}
+function randomRobot(state) {
+    return {direction: randomPick(roadGraph[state.place])}
+}
+
+function routeRobot(state, memory) {
+    if (memory.length == 0) {
+        memory = mailRoute;
+    }
+    return {direction: memory[0], memory: memory.slice(1)};
+}
+
+function findRoute(graph, from, to) {
+    let work = [{at: from, route: []}];
+    for(let i = 0; i < work.length; i++) {
+        let {at, route} = work[i];
+        for(let place of graph[at]) {
+            if(place == to) return route.concat(place);
+            if(!work.some(w => w.at == place)) {
+                work.push({at: place, route: route.concat(place)});
+            }
+        }
+    }
+}
+
+VillageState.random = function(parcelCount = 5) {
+    let parcels = [];
+    for (let i = 0; i < parcelCount; i++) {
+        let address = randomPick(Object.keys(roadGraph));
+        let place;
+        do {
+            place = randomPick(Object.keys(roadGraph));
+        }
+        while (place == address) {
+            parcels.push({place, address});
+        }
+    }
+    return new VillageState("PostOffice", parcels);
+}
+
+runRobot(VillageState.random(), randomRobot)
+
+
+
